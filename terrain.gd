@@ -1,8 +1,10 @@
 @tool
 extends MeshInstance3D
 
-const size := 256.0
-const min_bank_width := 10 #minimum width allowed at the sides of the river
+const total_width := 400.0
+const total_length := 512.0
+const min_bank_width := 80 #minimum width allowed at the sides of the river
+const max_bank_variance_for_curve := 20
 
 var speed := 10
 
@@ -11,13 +13,8 @@ var speed := 10
 		river_width = new_river_width
 		init_mesh()
 
-@export_range(2, 100, 2) var curve_length :int = 2:
-	set(new_curve_length):
-		curve_length = new_curve_length
-		init_mesh()
-
 #the angle by which the curve is incremented. This will determine the sharpness of curves
-@export_range(0.1, 6, 0.2) var curve_delta :float = 1.0:
+@export_range(1, 10, 1) var curve_delta :int = 1:
 	set(new_curve_delta):
 		curve_delta = new_curve_delta
 		init_mesh()
@@ -27,66 +24,83 @@ var speed := 10
 		resolution = new_resolution
 		init_mesh()
 
-@export_range(4.0, 128.0, 4.0) var height := 64.0:
-	set(new_height):
-		height = new_height
-		material_override.set_shader_parameter("height", height * 2.0)
-		init_mesh()
-
 #update the dir of the river after moving a certain distance
-func get_updated_dir(river_dir :Vector2, river_head_z :float) -> Vector2:
-	var random_float = randf()
-	var bias = (river_head_z + (size/2) - min_bank_width - (river_width/2))/(size-(2*min_bank_width)-river_width)
-	if(random_float>bias):
-		#update dir towards right by delta
-		return river_dir.rotated(curve_delta).normalized()
-	else:
-		return river_dir.rotated(-1*curve_delta).normalized()
+func get_updated_dir(river_dir :Vector2, is_left :bool) -> Vector2:
+	return river_dir.rotated(deg_to_rad((-1*curve_delta) if is_left else curve_delta)).normalized()
 
 func get_updated_head(river_head_z :float, river_dir :Vector2) -> float:
-	return river_head_z + river_dir.y
+	return river_head_z + tan(river_dir.angle())
 
-func get_height(x: float, z: float, river_head_z :float) -> float:
-	if(z>=(river_head_z-(river_width/2)) && z<=(river_head_z+(river_width/2))):
+func get_height(x: float, z: float, river_heads :Array) -> float:
+	var min_distance = 10000
+	var curr_point = Vector2(x, z)
+	for i in range(-10, 10):
+		if(ceil(x+i+(total_length/2)) >= 0 && ceil(x+i+(total_length/2)) < river_heads.size()):
+			var head_point = Vector2(x+i, river_heads[ceil(x+i+(total_length/2))])
+			if(min_distance>curr_point.distance_to(head_point)):
+				min_distance = curr_point.distance_to(head_point)
+	
+	if(min_distance<=river_width):
 		return -10
 	else:
 		return 10
 
 func get_normal(x: float, y: float, river_heads) -> Vector3:
-	var epsilon := size / resolution
+	var epsilon := total_length / resolution
 	var normal := Vector3(
-		(get_height(x + epsilon, y, river_heads[ceil(x+epsilon)]) - get_height(x - epsilon, y, river_heads[floor(x-epsilon)])) / (2.0 * epsilon),
+		(get_height(x + epsilon, y, river_heads) - get_height(x - epsilon, y, river_heads)) / (2.0 * epsilon),
 		1.0,
-		(get_height(x, y + epsilon, river_heads[x]) - get_height(x, y - epsilon, river_heads[x])) / (2.0 * epsilon)
+		(get_height(x, y + epsilon, river_heads) - get_height(x, y - epsilon, river_heads)) / (2.0 * epsilon)
 	)
 	return normal.normalized()
-	
+
+func get_current_bank_width(river_head_z :float, is_left :bool) -> float:
+	if(is_left):
+		return (total_width/2) + river_head_z - (river_width/2)
+	else:
+		return (total_width/2) - river_head_z - (river_width/2)
+
 func init_mesh() -> void:
 	var plane := PlaneMesh.new()
 	plane.subdivide_depth = resolution
 	plane.subdivide_width = resolution
-	plane.size = Vector2(size, size)
-	position = Vector3(size/2, 0, 0)
+	plane.size = Vector2(total_length, total_width)
+	position = Vector3(total_length/2, 0, 0)
 	
 	var plane_arrays := plane.get_mesh_arrays()
 	var vertex_array: PackedVector3Array = plane_arrays[ArrayMesh.ARRAY_VERTEX]
 	var normal_array: PackedVector3Array = plane_arrays[ArrayMesh.ARRAY_NORMAL]
 	var tangent_array: PackedFloat32Array = plane_arrays[ArrayMesh.ARRAY_TANGENT]
 	
+	var is_left = true;
+	var is_turning = true;
+	var current_curve_angle := deg_to_rad(randf_range(45, 60))
 	var river_dir := Vector2(1.0, 0)
 	var river_head_z :float = 0
 	var tangents = []
 	var river_heads = []
-	for i:int in range(0,size+1):
+	var target_bank_width = min_bank_width
+	for i:int in range(0,total_length+3):
 		tangents.push_back(river_dir)
 		river_heads.push_back(river_head_z)
-		if(i%curve_length==0):
-			river_dir = get_updated_dir(river_dir, river_head_z)
+		if is_turning:
+			river_dir = get_updated_dir(river_dir, is_left)
+			
+			if( ((is_left && river_dir.angle() < 0) || (!is_left && river_dir.angle() > 0)) && abs(river_dir.angle()) >= abs(current_curve_angle) ):
+				is_turning=false;
+		
+		if( !is_turning && get_current_bank_width(river_head_z, is_left) <= target_bank_width):
+			#start turning in the other direction
+			is_left = !is_left
+			is_turning = true
+			current_curve_angle = deg_to_rad(randf_range(45, 60))
+		
 		river_head_z = get_updated_head(river_head_z, river_dir)
 	
+
 	for i:int in vertex_array.size():
 		var vertex := vertex_array[i]
-		vertex.y = get_height(vertex.x, vertex.z, river_heads[vertex.x])
+		vertex.y = get_height(vertex.x, vertex.z, river_heads)
 		var normal = get_normal(vertex.x, vertex.z, river_heads)  
 		var tangent = normal.cross(Vector3.UP)
 		vertex_array[i] = vertex
