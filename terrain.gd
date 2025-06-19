@@ -2,13 +2,21 @@
 extends MeshInstance3D
 
 const total_width := 400.0
-const total_length := 512.0
-const min_bank_width := 80 #minimum width allowed at the sides of the river
+const total_length := 200.0
+const min_bank_width := 120 #minimum width allowed at the sides of the river
 const max_bank_variance_for_curve := 20
 
 var speed := 10
 
-@export_range(40, 200, 5) var river_width := 50:
+var tangents = []
+var river_heads = []
+
+@export var ground_texture :StandardMaterial3D = StandardMaterial3D.new():
+	set(new_ground_texture):
+		ground_texture = new_ground_texture
+		init_mesh()
+
+@export_range(20, 200, 5) var river_width := 50:
 	set(new_river_width):
 		river_width = new_river_width
 		init_mesh()
@@ -31,26 +39,37 @@ func get_updated_dir(river_dir :Vector2, is_left :bool) -> Vector2:
 func get_updated_head(river_head_z :float, river_dir :Vector2) -> float:
 	return river_head_z + tan(river_dir.angle())
 
-func get_height(x: float, z: float, river_heads :Array) -> float:
+func get_height(x: float, z: float) -> float:
 	var min_distance = 10000
 	var curr_point = Vector2(x, z)
-	for i in range(-10, 10):
-		if(ceil(x+i+(total_length/2)) >= 0 && ceil(x+i+(total_length/2)) < river_heads.size()):
-			var head_point = Vector2(x+i, river_heads[ceil(x+i+(total_length/2))])
-			if(min_distance>curr_point.distance_to(head_point)):
-				min_distance = curr_point.distance_to(head_point)
-	
-	if(min_distance<=river_width):
+	if(abs(river_heads[ceil(x+(total_length/2))]-z)<(river_width/2)):
 		return -10
-	else:
+	elif(abs(river_heads[ceil(x+(total_length/2))]-z)>(river_width*3)/4):
 		return 10
+	else:
+		for i in range(-30, 30):
+			if(ceil(x+i+(total_length/2)) >= 0 && ceil(x+i+(total_length/2)) < river_heads.size()):
+				var head_point = Vector2(x+i, river_heads[ceil(x+i+(total_length/2))])
+				if(min_distance>curr_point.distance_to(head_point)):
+					min_distance = curr_point.distance_to(head_point)
+		
+		if(min_distance<=(river_width/2)):
+			return -10
+		else:
+			return 10
+	#var adj_x = ceil(x+(total_length/2))
+	#var horizontal_width = (river_width/2)/sin(tangents[adj_x].angle_to(Vector2(0,1)))
+	#if(z <= river_heads[adj_x]+horizontal_width && z>=river_heads[adj_x]-horizontal_width):
+		#return -10
+	#else:
+		#return 10
 
-func get_normal(x: float, y: float, river_heads) -> Vector3:
+func get_normal(x: float, y: float) -> Vector3:
 	var epsilon := total_length / resolution
 	var normal := Vector3(
-		(get_height(x + epsilon, y, river_heads) - get_height(x - epsilon, y, river_heads)) / (2.0 * epsilon),
+		(get_height(x + epsilon, y) - get_height(x - epsilon, y)) / (2.0 * epsilon),
 		1.0,
-		(get_height(x, y + epsilon, river_heads) - get_height(x, y - epsilon, river_heads)) / (2.0 * epsilon)
+		(get_height(x, y + epsilon) - get_height(x, y - epsilon)) / (2.0 * epsilon)
 	)
 	return normal.normalized()
 
@@ -71,14 +90,14 @@ func init_mesh() -> void:
 	var vertex_array: PackedVector3Array = plane_arrays[ArrayMesh.ARRAY_VERTEX]
 	var normal_array: PackedVector3Array = plane_arrays[ArrayMesh.ARRAY_NORMAL]
 	var tangent_array: PackedFloat32Array = plane_arrays[ArrayMesh.ARRAY_TANGENT]
-	
+	tangents = []
+	river_heads = []
 	var is_left = true;
 	var is_turning = true;
 	var current_curve_angle := deg_to_rad(randf_range(45, 60))
 	var river_dir := Vector2(1.0, 0)
 	var river_head_z :float = 0
-	var tangents = []
-	var river_heads = []
+	
 	var target_bank_width = min_bank_width
 	for i:int in range(0,total_length+3):
 		tangents.push_back(river_dir)
@@ -100,8 +119,8 @@ func init_mesh() -> void:
 
 	for i:int in vertex_array.size():
 		var vertex := vertex_array[i]
-		vertex.y = get_height(vertex.x, vertex.z, river_heads)
-		var normal = get_normal(vertex.x, vertex.z, river_heads)  
+		vertex.y = get_height(vertex.x, vertex.z)
+		var normal = get_normal(vertex.x, vertex.z)
 		var tangent = normal.cross(Vector3.UP)
 		vertex_array[i] = vertex
 		normal_array[i] = normal
@@ -111,6 +130,7 @@ func init_mesh() -> void:
 	
 	var array_mesh := ArrayMesh.new()
 	array_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, plane_arrays)
+	array_mesh.surface_set_material(0, ground_texture)
 	mesh = array_mesh
 
 #func update_mesh() -> void:
