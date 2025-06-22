@@ -4,7 +4,6 @@ extends MeshInstance3D
 const total_width := 400.0
 const total_length := 200.0
 const min_bank_width := 120 #minimum width allowed at the sides of the river
-const max_bank_variance_for_curve := 20
 
 var speed := 10
 
@@ -42,6 +41,7 @@ func get_updated_head(river_head_z :float, river_dir :Vector2) -> float:
 func get_height(x: float, z: float) -> float:
 	var min_distance = 10000
 	var curr_point = Vector2(x, z)
+	
 	if(abs(river_heads[ceil(x+(total_length/2))]-z)<(river_width/2)):
 		return -10
 	elif(abs(river_heads[ceil(x+(total_length/2))]-z)>(river_width*3)/4):
@@ -80,11 +80,19 @@ func get_current_bank_width(river_head_z :float, is_left :bool) -> float:
 		return (total_width/2) - river_head_z - (river_width/2)
 
 func init_mesh() -> void:
+	var is_left = true;
+	var is_turning = true;
+	var current_curve_angle := deg_to_rad(randf_range(45, 60))
+	var river_dir := Vector2(1.0, 0)
+	var river_head_z :float = 0
+	create_mesh(is_left, is_turning, current_curve_angle, river_dir, river_head_z, total_length/2)
+
+func create_mesh(is_left :bool, is_turning :bool, current_curve_angle :float, river_dir :Vector2, river_head_z :float, position_x :float):
 	var plane := PlaneMesh.new()
 	plane.subdivide_depth = resolution
 	plane.subdivide_width = resolution
 	plane.size = Vector2(total_length, total_width)
-	position = Vector3(total_length/2, 0, 0)
+	position = Vector3(position_x, 0, 0)
 	
 	var plane_arrays := plane.get_mesh_arrays()
 	var vertex_array: PackedVector3Array = plane_arrays[ArrayMesh.ARRAY_VERTEX]
@@ -92,11 +100,6 @@ func init_mesh() -> void:
 	var tangent_array: PackedFloat32Array = plane_arrays[ArrayMesh.ARRAY_TANGENT]
 	tangents = []
 	river_heads = []
-	var is_left = true;
-	var is_turning = true;
-	var current_curve_angle := deg_to_rad(randf_range(45, 60))
-	var river_dir := Vector2(1.0, 0)
-	var river_head_z :float = 0
 	
 	var target_bank_width = min_bank_width
 	for i:int in range(0,total_length+3):
@@ -132,32 +135,3 @@ func init_mesh() -> void:
 	array_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, plane_arrays)
 	array_mesh.surface_set_material(0, ground_texture)
 	mesh = array_mesh
-
-#func update_mesh() -> void:
-	#var plane := PlaneMesh.new()
-	#plane.subdivide_depth = resolution
-	#plane.subdivide_width = resolution
-	#plane.size = Vector2(size, size)
-	#
-	#var plane_arrays := plane.get_mesh_arrays()
-	#var vertex_array: PackedVector3Array = plane_arrays[ArrayMesh.ARRAY_VERTEX]
-	#var normal_array: PackedVector3Array = plane_arrays[ArrayMesh.ARRAY_NORMAL]
-	#var tangent_array: PackedFloat32Array = plane_arrays[ArrayMesh.ARRAY_TANGENT]
-	#
-	#for i:int in vertex_array.size():
-		#var vertex := vertex_array[i]
-		#var normal := Vector3.UP
-		#var tangent := Vector3.RIGHT
-		#if noise:
-			#vertex.y = get_height(vertex.x, vertex.z)
-			#normal = get_normal(vertex.x, vertex.z)  
-			#tangent = normal.cross(Vector3.UP)
-		#vertex_array[i] = vertex
-		#normal_array[i] = normal
-		#tangent_array[4 * i] = tangent.x
-		#tangent_array[4 * i + 1] = tangent.y
-		#tangent_array[4 * i + 2] = tangent.z
-	#
-	#var array_mesh := ArrayMesh.new()
-	#array_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, plane_arrays)
-	#mesh = array_mesh
