@@ -4,42 +4,40 @@ extends Node3D
 @onready var boat :Node3D = get_node("Boat")
 @onready var camera :Camera3D = get_node("Camera3D")
 #const mesh_sections = []
-const TOTAL_SECTIONS = 12
+const TOTAL_SECTIONS = 10
 var current_section = 0
 
-const min_bank_width := 120 #minimum width allowed at the sides of the river
+const min_bank_width := 160 #minimum width allowed at the sides of the river
 
-@export var section_length :int = 20:
+@export var section_length :int = 30:
 	set(new_section_length):
 		section_length = new_section_length
-		init_sections()
+		#init_sections()
 		
 @export var section_width :int = 400:
 	set(new_section_width):
 		section_width = new_section_width
-		init_sections()
+		#init_sections()
 
-@export_range(4, 256, 4) var resolution := 256:
+@export_range(4, 500, 4) var resolution := 300:
 	set(new_resolution):
 		resolution = new_resolution
-		init_sections()
+		#init_sections()
 		
 @export_range(1, 10, 1) var curve_delta :int = 1:
 	set(new_curve_delta):
 		curve_delta = new_curve_delta
 		init_sections()
 
-@export_range(20, 200, 5) var river_width := 50:
+@export_range(20, 200, 5) var river_width := 30:
 	set(new_river_width):
 		river_width = new_river_width
-		init_sections()
+		#init_sections()
 
 @export var ground_texture :StandardMaterial3D = StandardMaterial3D.new():
 	set(new_ground_texture):
 		ground_texture = new_ground_texture
-		init_sections()
-
-const total_width := 400.0
+		#init_sections()
 
 var tangents = []
 var river_heads = []
@@ -52,6 +50,13 @@ var river_head_z :float = 0
 var position_x :float = section_length/2
 
 var child_node: Node3D = Node3D.new()
+var mesh_array :Array = []
+var mesh_repo :Array = []
+const mesh_repo_size :int = 2
+const max_distance_no_turn :int = 80
+var distance_no_turn :int = 0
+
+var thread: Thread
 
 func _ready() -> void:
 	init_sections()
@@ -64,81 +69,95 @@ func init_sections():
 	child_node.free()
 	child_node = Node3D.new()
 	for i:int in range(TOTAL_SECTIONS):
-		child_node.add_child(create_mesh())
+		var mesh = create_mesh()
+		mesh_array.push_back(mesh)
+		if mesh_array.size()==1:
+			mesh.position = Vector3(section_length, 0, 0)
+		else:
+			mesh.position = Vector3(mesh_array[mesh_array.size()-2].position.x+section_length, 0, 0)
+		child_node.add_child(mesh)
 		current_section+=1
 	add_child(child_node)
+	thread = Thread.new()
+	thread.start(maintain_mesh_repo)
 
 func reset_generation_vars()->void:
 	current_section=0
 	is_left = true;
 	is_turning = true;
-	current_curve_angle = deg_to_rad(randf_range(45, 60))
 	river_dir = Vector2(1.0, 0)
 	river_head_z = 0
 	position_x = section_length/2
 	tangents = []
 	river_heads = []
-	
-func add_section() -> void:
-	child_node.add_child(create_mesh())
-	child_node.remove_child(child_node.get_child(current_section-TOTAL_SECTIONS))
+	mesh_array = []
+	mesh_repo = []
+	set_new_curve_angle()
+
+func maintain_mesh_repo() -> void:
+	while mesh_repo.size() < mesh_repo_size:
+		mesh_repo.push_back(create_mesh())
+
+func add_section_remove_last() -> void:
+	var mesh = mesh_repo[0]
+	mesh_repo.remove_at(0)
+	thread.wait_to_finish()
+	thread.start(maintain_mesh_repo)
+	mesh_array.push_back(mesh)
+	mesh.position = Vector3(mesh_array[mesh_array.size()-2].position.x+section_length, 0, 0)
+	child_node.add_child(mesh)
+	child_node.remove_child(mesh_array[0])
+	mesh_array[0].free()
+	mesh_array.remove_at(0)
 	current_section+=1
 
 func _input(event: InputEvent) -> void:
 	if Input.is_key_pressed(KEY_UP):
-		move_boat(1)
-		move_camera(1)
+		move_terrain(1)
 	if Input.is_key_pressed(KEY_LEFT):
 		boat.position.z -= 1
 	if Input.is_key_pressed(KEY_RIGHT):
 		boat.position.z += 1
 
-func move_boat(distance: float) -> void:
-	boat.position.x += distance
-	if boat.position.x >= section_length*(current_section-(TOTAL_SECTIONS/2)):
-		add_section()
+func move_terrain(distance: float) -> void:
+	for mesh in mesh_array:
+		mesh.position.x-=distance
+	if mesh_array[0].position.x < 0:
+		add_section_remove_last()
 
-func move_camera(distance: float) -> void:
-	camera.position.x += distance
+func set_new_curve_angle() -> void:
+	current_curve_angle = deg_to_rad(randf_range(20, 60))
 
 #update the dir of the river after moving a certain distance
-func get_updated_dir(river_dir :Vector2, is_left :bool) -> Vector2:
+func get_updated_dir() -> Vector2:
 	return river_dir.rotated(deg_to_rad((-1*curve_delta) if is_left else curve_delta)).normalized()
 
-func get_updated_head(river_head_z :float, river_dir :Vector2) -> float:
+func get_updated_head() -> float:
 	return river_head_z + tan(river_dir.angle())
 
 func get_height(x: float, z: float) -> float:
-	if roundi(x) == roundi(section_length/2):
+	var new_x = int(ceil(x+section_length/2))
+	if new_x >= river_heads.size():
+		new_x = river_heads.size()-1
+	elif new_x < 0:
+		new_x = 0
+	var new_width = abs(river_width/(2*cos(tangents[new_x].angle())))
+	
+	if (z < (river_heads[new_x] - new_width) && z+1 >= (river_heads[new_x] - new_width)) || (z > (river_heads[new_x] + new_width) && z-1 <= (river_heads[new_x] + new_width)):
+		return 2
+	if (z < (river_heads[new_x] - new_width) && z+2 >= (river_heads[new_x] - new_width)) || (z > (river_heads[new_x] + new_width) && z-2 <= (river_heads[new_x] + new_width)):
+		return 3
+	if (z < (river_heads[new_x] - new_width) && z+3 >= (river_heads[new_x] - new_width)) || (z > (river_heads[new_x] + new_width) && z-3 <= (river_heads[new_x] + new_width)):
+		return 4
+	#if (z < (river_heads[new_x] - new_width) && z+4 >= (river_heads[new_x] - new_width)) || (z > (river_heads[new_x] + new_width) && z-4 <= (river_heads[new_x] + new_width)):
+		#return 4.5
+	if z >= (river_heads[new_x] - new_width) && z <= (river_heads[new_x] + new_width):
 		return -10
-	var min_distance = 10000
-	var curr_point = Vector2(x, z)
-	var head_index = ceil(x+(section_length/2)) + (section_length if current_section>0 else 0)
-	if(abs(river_heads[head_index]-z)<(river_width/2)):
-		return -10
-	elif(abs(river_heads[head_index]-z)>(river_width*3)/4):
-		return 10
 	else:
-		for i in range(-30, 30):
-			var new_head_index = ceil(x+i+(section_length/2)) + (section_length if current_section>0 else 0)
-			if(new_head_index >= 0 && new_head_index < river_heads.size()):
-				var head_point = Vector2(x+i, river_heads[new_head_index])
-				if(min_distance>curr_point.distance_to(head_point)):
-					min_distance = curr_point.distance_to(head_point)
-		
-		if(min_distance<=(river_width/2)):
-			return -10
-		else:
-			return 10
-	#var adj_x = ceil(x+(total_length/2))
-	#var horizontal_width = (river_width/2)/sin(tangents[adj_x].angle_to(Vector2(0,1)))
-	#if(z <= river_heads[adj_x]+horizontal_width && z>=river_heads[adj_x]-horizontal_width):
-		#return -10
-	#else:
-		#return 10
+		return 5
 
 func get_normal(x: float, y: float) -> Vector3:
-	var epsilon := section_length / resolution
+	var epsilon := 1#section_length / resolution
 	var normal := Vector3(
 		(get_height(x + epsilon, y) - get_height(x - epsilon, y)) / (2.0 * epsilon),
 		1.0,
@@ -146,11 +165,11 @@ func get_normal(x: float, y: float) -> Vector3:
 	)
 	return normal.normalized()
 
-func get_current_bank_width(river_head_z :float, is_left :bool) -> float:
+func get_current_bank_width() -> float:
 	if(is_left):
-		return (total_width/2) + river_head_z - (river_width/2)
+		return (section_width/2) + river_head_z - (river_width/2)
 	else:
-		return (total_width/2) - river_head_z - (river_width/2)
+		return (section_width/2) - river_head_z - (river_width/2)
 
 func create_mesh() -> MeshInstance3D:
 	var plane := PlaneMesh.new()
@@ -163,11 +182,9 @@ func create_mesh() -> MeshInstance3D:
 	var normal_array: PackedVector3Array = plane_arrays[ArrayMesh.ARRAY_NORMAL]
 	var tangent_array: PackedFloat32Array = plane_arrays[ArrayMesh.ARRAY_TANGENT]
 	
-	if current_section>=2:
-		for i:int in range(0,section_length+1):
-			river_heads.remove_at(i)
-			tangents.remove_at(i)
-		
+	river_heads = []
+	tangents = []
+	print("Creating mesh: ", mesh_array.size())
 	var target_bank_width = min_bank_width
 	for i:int in range(0,section_length+1):
 		tangents.push_back(river_dir)
@@ -175,19 +192,28 @@ func create_mesh() -> MeshInstance3D:
 		if current_section == 0:
 			continue
 		if is_turning:
-			river_dir = get_updated_dir(river_dir, is_left)
-			
+			river_dir = get_updated_dir()
 			if( ((is_left && river_dir.angle() < 0) || (!is_left && river_dir.angle() > 0)) && abs(river_dir.angle()) >= abs(current_curve_angle) ):
 				is_turning=false;
+		else:
+			distance_no_turn+=1
+			if distance_no_turn >= max_distance_no_turn:
+				distance_no_turn=0
+				is_left = !is_left
+				is_turning = true
+				set_new_curve_angle()
 		
-		if( !is_turning && get_current_bank_width(river_head_z, is_left) <= target_bank_width):
+		if( !is_turning && get_current_bank_width() <= target_bank_width):
 			#start turning in the other direction
 			is_left = !is_left
 			is_turning = true
-			current_curve_angle = deg_to_rad(randf_range(45, 60))
+			set_new_curve_angle()
 		
-		river_head_z = get_updated_head(river_head_z, river_dir)
-
+		river_head_z = get_updated_head()
+	
+	river_head_z = river_heads[river_heads.size()-2]
+	river_dir = tangents[tangents.size()-2]
+	
 	for i:int in vertex_array.size():
 		var vertex := vertex_array[i]
 		vertex.y = get_height(vertex.x, vertex.z)
@@ -204,5 +230,8 @@ func create_mesh() -> MeshInstance3D:
 	array_mesh.surface_set_material(0, ground_texture)
 	var mesh_instance :MeshInstance3D = MeshInstance3D.new();
 	mesh_instance.mesh = array_mesh
-	mesh_instance.position = Vector3(position_x+(current_section*section_length)-current_section, 0, 0)
+	#mesh_instance.position = Vector3(position_x+(current_section*section_length)-current_section, 0, 0)
 	return mesh_instance
+
+func _exit_tree():
+	thread.wait_to_finish()
