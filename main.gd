@@ -1,4 +1,4 @@
-#@tool
+@tool
 extends Node3D
 
 @onready var boat :Node3D = get_node("Boat")
@@ -7,14 +7,14 @@ extends Node3D
 const TOTAL_SECTIONS = 10
 var current_section = 0
 
-const min_bank_width := 160 #minimum width allowed at the sides of the river
+const min_bank_width := 50 #minimum width allowed at the sides of the river
 
 @export var section_length :int = 30:
 	set(new_section_length):
 		section_length = new_section_length
 		#init_sections()
 		
-@export var section_width :int = 400:
+@export var section_width :int = 200:
 	set(new_section_width):
 		section_width = new_section_width
 		#init_sections()
@@ -27,7 +27,7 @@ const min_bank_width := 160 #minimum width allowed at the sides of the river
 @export_range(1, 10, 1) var curve_delta :int = 1:
 	set(new_curve_delta):
 		curve_delta = new_curve_delta
-		#init_sections()
+		init_sections()
 
 @export_range(20, 200, 5) var river_width := 30:
 	set(new_river_width):
@@ -115,6 +115,7 @@ func save_init_vars() -> void:
 	init_vars['river_head_z'] = river_head_z
 	init_vars['position_x'] = position_x
 	init_vars['current_curve_angle'] = current_curve_angle
+	init_vars['distance_no_turn'] = distance_no_turn
 	
 	var config_file := ConfigFile.new()
 	for item in init_vars.keys():
@@ -138,9 +139,11 @@ func load_init_vars() -> void:
 	river_head_z = config_file.get_value("Terrain", "river_head_z", 0)
 	position_x = config_file.get_value("Terrain", "position_x", 0)
 	current_curve_angle = config_file.get_value("Terrain", "current_curve_angle", 0)
+	distance_no_turn = config_file.get_value("Terrain", "distance_no_turn", 0)
 
 func reset_generation_vars()->void:
 	current_section=0
+	distance_no_turn=0
 	is_left = true;
 	is_turning = true;
 	river_dir = Vector2(1.0, 0)
