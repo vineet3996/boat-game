@@ -27,7 +27,7 @@ const min_bank_width := 160 #minimum width allowed at the sides of the river
 @export_range(1, 10, 1) var curve_delta :int = 1:
 	set(new_curve_delta):
 		curve_delta = new_curve_delta
-		init_sections()
+		#init_sections()
 
 @export_range(20, 200, 5) var river_width := 30:
 	set(new_river_width):
@@ -59,27 +59,85 @@ var distance_no_turn :int = 0
 var thread: Thread
 
 func _ready() -> void:
+	seed(2)
 	init_sections()
 
 func init_sections():
-	reset_generation_vars()
-	var children = child_node.get_children()
-	for child in children:
-		child.free()
-	child_node.free()
-	child_node = Node3D.new()
-	for i:int in range(TOTAL_SECTIONS):
-		var mesh = create_mesh()
-		mesh_array.push_back(mesh)
-		if mesh_array.size()==1:
-			mesh.position = Vector3(section_length, 0, 0)
-		else:
-			mesh.position = Vector3(mesh_array[mesh_array.size()-2].position.x+section_length, 0, 0)
-		child_node.add_child(mesh)
-		current_section+=1
-	add_child(child_node)
+	child_node = get_node("Terrain")
+	if child_node.get_child_count() == 0:
+		reset_generation_vars()
+		for i:int in range(TOTAL_SECTIONS):
+			var mesh = create_mesh()
+			mesh_array.push_back(mesh)
+			if mesh_array.size()==1:
+				mesh.position = Vector3(section_length, 0, 0)
+			else:
+				mesh.position = Vector3(mesh_array[mesh_array.size()-2].position.x+section_length, 0, 0)
+			child_node.add_child(mesh)
+			mesh.owner=get_tree().edited_scene_root
+			current_section+=1
+		
+		save_init_vars()
+	else:
+		load_init_vars()
+		mesh_array = []
+		for child in child_node.get_children():
+			if mesh_array.size()==0:
+				mesh_array.push_back(child)
+			else:
+				var new_mesh_array = []
+				var new_child_inserted = false
+				for mesh in mesh_array:
+					if !new_child_inserted && mesh.position.x > child.position.x:
+						new_child_inserted=true
+						new_mesh_array.push_back(child)
+					new_mesh_array.push_back(mesh)
+				if !new_child_inserted:
+					new_mesh_array.push_back(child)
+				mesh_array = new_mesh_array
+		
+		#var scene = PackedScene.new()
+		#scene.pack(child_node)
+		#ResourceSaver.save(scene, "res://terrain.tscn")
+		
 	thread = Thread.new()
 	thread.start(maintain_mesh_repo)
+
+var save_path := "res://terrain_init_vars.cfg"
+
+func save_init_vars() -> void:
+	var init_vars :Dictionary = {}
+	init_vars['current_section'] = current_section
+	init_vars['is_left'] = is_left
+	init_vars['is_turning'] = is_turning
+	init_vars['river_dir_x'] = river_dir.x
+	init_vars['river_dir_y'] = river_dir.y
+	init_vars['river_head_z'] = river_head_z
+	init_vars['position_x'] = position_x
+	init_vars['current_curve_angle'] = current_curve_angle
+	
+	var config_file := ConfigFile.new()
+	for item in init_vars.keys():
+		config_file.set_value("Terrain", item, init_vars[item])
+	var error := config_file.save(save_path)
+	if error:
+		print("An error happened while saving data: ", error)
+
+func load_init_vars() -> void:
+	var config_file := ConfigFile.new()
+	var error := config_file.load(save_path)
+
+	if error:
+		print("An error happened while loading data: ", error)
+		return
+	current_section = config_file.get_value("Terrain", "current_section", 0)
+	is_left = config_file.get_value("Terrain", "is_left", 0)
+	is_turning = config_file.get_value("Terrain", "is_turning", 0)
+	river_dir.x = config_file.get_value("Terrain", "river_dir_x", 0)
+	river_dir.y = config_file.get_value("Terrain", "river_dir_y", 0)
+	river_head_z = config_file.get_value("Terrain", "river_head_z", 0)
+	position_x = config_file.get_value("Terrain", "position_x", 0)
+	current_curve_angle = config_file.get_value("Terrain", "current_curve_angle", 0)
 
 func reset_generation_vars()->void:
 	current_section=0
@@ -233,5 +291,5 @@ func create_mesh() -> MeshInstance3D:
 	#mesh_instance.position = Vector3(position_x+(current_section*section_length)-current_section, 0, 0)
 	return mesh_instance
 
-func _exit_tree():
-	thread.wait_to_finish()
+#func _exit_tree():
+	#thread.wait_to_finish()
