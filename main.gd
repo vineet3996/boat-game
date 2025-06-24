@@ -1,4 +1,4 @@
-@tool
+#@tool
 extends Node3D
 
 @onready var boat :Node3D = get_node("Boat")
